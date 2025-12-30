@@ -1,0 +1,250 @@
+# R Shiny Website 
+
+library(shiny)
+library(shinythemes)
+library(plotly)
+library(dplyr)
+library(ggplot2)
+library(plm)
+library(broom)
+library(ggthemes)
+
+ggplot2::theme_set(ggplot2::theme_minimal(base_size = 16))
+
+knitr::opts_chunk$set(
+  fig.width = 8, fig.asp = 0.618, fig.retina = 2, dpi = 150, out.width = "60%"
+)
+
+options(dplyr.print_max = 10, dplyr.print_min = 10)
+
+ggi_mmr <- readRDS("final_data6.rds") 
+
+
+# Define UI
+ui <- fluidPage(
+  theme = shinytheme("cerulean"),
+  
+  titlePanel("Bridging the Gender Gap: Gender Equality as a Pathway to Lower Maternal Mortality"),
+  h3("Riya Chaturvedi"),
+  h6("This study seeks to estimate the impact of gender equality levels on maternal mortality rates worldwide and uses various dimensions of gender equality to estimate the policy implications of this relationship. 
+     The tabs below can be used to navigate through the levels of analysis."),
+  
+  tabsetPanel(  
+    tabPanel("Research Summary",
+             mainPanel(
+               HTML("
+               <b>Bridging the Gender Gap: Gender Equality as a Pathway to Lower Maternal Mortality</b><br>
+               <b>Author:</b> Riya Chaturvedi (University of Chicago)<br>
+               <b>Funding:</b> Kiphart Family Foundation, UChicago Center for Global Health & Institute of Politics<br>
+               <br>
+               <b>Background</b><br>
+               Maternal Mortality Rates (MMR) have remained a major development indicator over the years, with international development agencies focusing on MMR reduction consistently in the last few decades.
+               The Millennium Development Goal (MDG) to reduce MMR by 75% was unfortunately not achieved, and SDG targets for 2030 are also severely lagging behind.
+               Is it time to consider that Economic progress alone cannot sufficiently reduce MMR? Is there a missing factor in policy interventions beyond economic progress and health system strengthening?<br>
+               This research estimates the relationship between MMR and Gender Equality by using data from World Economic Forum's Gender Gap Index and World Bank estimations for MMR. The results from this empirical project are used to
+               answer the above posed question, that is, is a gender equality-based lens/policy approach what's missing from policy interventions?<br>
+               <br>
+               <b>Methodology</b><br>
+               Sample: 1,769 observations across 137 countries (2006-2019).<br>
+               Model: Multivariate OLS with multi-level fixed effects.<br>
+               Key Controls: Government Health Expenditure & Gross National Income (GNI).<br>
+               GGI- Health & Survival was dropped due to multi-collinearity.<br>
+               <br>
+               <b>Key Findings</b><br>
+               A 0.1 increase in the Gender Gap Index (GGI) → ~30% reduction in MMR.<br>
+               A 0.1 increase in the Education GGI → ~25% reduction in MMR.<br>
+               Education & Political representation of women has a strong impact on MMR, especially in low-income countries.<br>
+               Economic participation & country income level are weaker predictors of MMR—potentially due to the Female Labor Force Participation (FLFP) Effect.<br>
+               <br>
+               <b>Policy Implications</b><br>
+               Overall, Gender Equality plays a key role in determining Maternal Mortality Rates worldwide; this relationship is strong and provides a potential gap 
+               in addressing the issue of maternal mortality. Improving the socio-economic status of women by achieving gender equal outcomes in education and political 
+               representation, in particular, will have a significant effect on reducing Maternal Mortality Rates. Moreover, it is important to consider that On average, 
+               political representation of women worldwide is not even 30%, this research tells us the importance of achieving equal representation of women and men in law-making- 
+               particularly in low-income countries.
+               <br>
+               ")
+             )
+    ),
+    
+    tabPanel("Income Level",
+             sidebarPanel(
+               sliderInput("Year", "Select Year:", 
+                           min = min(ggi_mmr$year), 
+                           max = max(ggi_mmr$year), 
+                           value = 2015,
+                           step = 1,
+                           sep = ""),
+               selectInput("income_level", "Filter by Income Level:", 
+                           choices = c("All", unique(ggi_mmr$WB_Income17)), 
+                           selected = "All")
+             ),
+             mainPanel(
+               plotlyOutput("scatterplot")
+             )
+    ),
+    
+    tabPanel("Gender Gap Sub-indices",
+             sidebarPanel(
+               sliderInput("year", "Select Year:", 
+                           min = min(ggi_mmr$year), 
+                           max = max(ggi_mmr$year), 
+                           value = 2015,
+                           step = 1,
+                           sep = ""),
+               selectInput("GGI_Sub_index", "Filter by each Sub-index:", 
+                           choices = c("Educational Attainment" = "gggi_educ", 
+                                       "Economic Opportunity & Participation" = "gggi_econ", 
+                                       "Political Representation" = "gggi_pol"),
+                           selected = "gggi_pol")
+             ),
+             mainPanel(
+               plotlyOutput("scatterplot2")
+             )
+    ),
+    tabPanel("Regression Analysis",
+             sidebarPanel(
+               selectInput("income_level_reg", "Filter by Income Level:", 
+                           choices = c("All", unique(ggi_mmr$WB_Income17)), 
+                           selected = "All")
+             ),  
+             
+             mainPanel(
+               plotlyOutput("coeff_plot"))
+    )
+    )
+  )  
+
+
+# Defining Server
+server <- function(input, output) {
+  
+  palette1 <- c("Low income" = "#AFEEEE", 
+                "Middle Income" = "#00C5CD", 
+                "High Income" = "#00868B")
+  
+  
+  preprocess_data <- function(data) {
+    data$WB_Income17 <- factor(data$WB_Income17, 
+                               levels = c("Low income", "Middle Income", "High Income"))
+    return(data)
+  }
+  
+  filtered_data <- reactive({
+    data <- ggi_mmr %>% filter(year == input$Year)
+    if (input$income_level != "All") {
+      data <- data %>% filter(WB_Income17 == input$income_level)
+    }
+    return(preprocess_data(data))
+  })
+  
+  filtered_data2 <- reactive({
+    return(preprocess_data(ggi_mmr %>% filter(year == input$year)))
+  })
+  
+  filtered_data3 <- reactive({
+    data <- ggi_mmr
+    if (input$income_level_reg != "All") {
+      data <- data %>% filter(WB_Income17 == input$income_level_reg)
+    }
+    return(preprocess_data(data))
+  })
+  
+  output$scatterplot <- renderPlotly({
+    plot_data <- filtered_data()
+    
+    scatterplot <- ggplot(plot_data, aes(x = gggi, y = log(MMR))) +  
+      geom_point(aes(
+        colour = WB_Income17,
+        text = paste(
+          "Country:", cname,
+          "<br>GGGI:", round(gggi, 2),
+          "<br>MMR:", round(MMR, 2),
+          "<br>Income Level:", WB_Income17
+        )
+      )) +
+      scale_color_manual(values = palette1) + 
+      geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, color = "black") +   
+      labs(
+        x = "Gender Gap Index",  
+        y = "Log(Maternal Mortality Rate per 100,000)",
+        title = paste("Maternal Mortality Ratio v/s Gender Gap Index by Income Level (", input$Year, ")", sep = ""),
+        color = "Income Level"
+      ) + 
+      theme_minimal()
+    
+    ggplotly(scatterplot, tooltip = "text")
+    
+  })
+  
+  output$scatterplot2 <- renderPlotly({
+    plot_data <- filtered_data2()
+    
+    variable_labels <- c(
+      "gggi_educ" = "Educational Attainment",
+      "gggi_econ" = "Economic Opportunity & Participation",
+      "gggi_pol" = "Political Representation"
+    )
+    
+    selected_var <- input$GGI_Sub_index  
+    
+    scatterplot2 <- ggplot(plot_data, aes_string(x = selected_var, y = "log(MMR)")) +  
+      geom_point(aes(
+        colour = WB_Income17,
+        text = paste(
+          "Country:", plot_data$cname,
+          "<br>", variable_labels[selected_var], ":", round(plot_data[[selected_var]], 2),
+          "<br>MMR:", round(plot_data$MMR, 2),
+          "<br>Income Level:", plot_data$WB_Income17
+        )
+      )) +
+      scale_color_manual(values = palette1) +
+      geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, color = "black") +   
+      labs(
+        x = variable_labels[selected_var],  
+        y = "Log(Maternal Mortality Rate per 100,000)",
+        title = paste("Maternal Mortality Ratio v/s ", variable_labels[selected_var], " (", input$year, ")", sep = ""),
+        color = "Income Level"
+      ) + 
+      theme_minimal()
+    
+    ggplotly(scatterplot2, tooltip = "text")
+  })
+  
+  output$coeff_plot <- renderPlotly({
+    plot_data <- filtered_data3()
+    
+    ggi_mmr_f <- pdata.frame(plot_data, index = c("cname", "year"))
+    
+    model <- plm(log(MMR) ~ gggi_educ + gggi_econ + gggi_pol + govt_healthexp + GNI, data = ggi_mmr_f)
+    
+    regression_results <- tidy(model, conf.int = TRUE) %>%
+      filter(term != "(Intercept)")  
+    
+    term_labels <- c(
+      "gggi_educ" = "Education GGI",
+      "gggi_econ" = "Economic GGI",
+      "gggi_pol" = "Political GGI",
+      "govt_healthexp" = "Government Health Expenditure",
+      "GNI" = "Gross National Income"
+    )
+    
+    regression_results$term <- factor(regression_results$term, levels = names(term_labels), labels = term_labels)
+    
+    coeff_plot <- ggplot(regression_results, aes(x = term, y = estimate, ymin = conf.low, ymax = conf.high)) +
+      geom_pointrange(size = 3, color = "#003366") +  
+      geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey") +  
+      coord_flip() +  
+      labs(
+        title = "Regression Coefficients with 95% Confidence Intervals",
+        y = "Coefficient Estimate"
+      ) +
+      theme_minimal() +
+      theme(axis.title.y = element_blank())
+    
+    ggplotly(coeff_plot, tooltip = c("x", "y"))
+  })
+} 
+
+# Run the App
+shinyApp(ui = ui, server = server)
